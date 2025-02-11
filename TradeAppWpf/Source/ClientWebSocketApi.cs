@@ -14,6 +14,7 @@ namespace TradeAppWpf.Source
 
         private ClientWebSocket _ws = new ClientWebSocket();
         private string _pair = "";
+        private StringBuilder _messageBuffer = new StringBuilder();
 
         public void SubscribeCandles(string pair, int periodInSec, DateTimeOffset? from = null, DateTimeOffset? to = null, long? count = 0)
         {
@@ -48,17 +49,34 @@ namespace TradeAppWpf.Source
                 {
                     break;
                 }
-                string msg = Encoding.UTF8.GetString(buffer);
+                string msg = Encoding.UTF8.GetString(buffer).Trim('\0');
+                if (msg.Contains("info") || msg.Contains("subscribed"))
+                    continue;
 
-                CandleSeriesProcessing.Invoke(new Candle() { Pair = msg});
+                //try
+                //{
+                //    using JsonDocument doc = JsonDocument.Parse(msg);
+                //    JsonElement root = doc.RootElement;
+                //    root.TryGetProperty("event", out JsonElement eventProp);
+                //    string eventPropStr = eventProp.GetString();
+                //    if (eventPropStr == "info" || eventPropStr == "subscribed")
+                //        continue;
+                //} catch { }
+
+                _messageBuffer.Append(msg);
+
+                //CandleSeriesProcessing.Invoke(new Candle() { Pair = msg});
 
                 // обработка
                 try
                 {
-                    var candles = JsonSerializer.Deserialize<List<List<JsonElement>>>(msg);
+                    var candles = JsonSerializer.Deserialize<List<JsonElement>>(_messageBuffer.ToString());
+                    var rawCandles = candles[1].Deserialize<List<List<JsonElement>>>();
+
                     List<Candle> candleList = new List<Candle>();
-                    foreach (var currCandle in candles)
+                    foreach (var currCandle in rawCandles)
                     {
+                        if (currCandle.Count < 6) continue;
                         Candle newCandle = new Candle()
                         {
                             Pair = _pair,
@@ -76,9 +94,10 @@ namespace TradeAppWpf.Source
 
                     foreach (var currCandle in candleList)
                         CandleSeriesProcessing.Invoke(currCandle);
+                    _messageBuffer.Clear();
                 } catch
                 {
-                    CandleSeriesProcessing.Invoke(new Candle() { Pair = "Не удалось обработать сообщение" });
+                    // CandleSeriesProcessing.Invoke(new Candle() { Pair = "Не удалось обработать сообщение" });
                 }
             }
 
